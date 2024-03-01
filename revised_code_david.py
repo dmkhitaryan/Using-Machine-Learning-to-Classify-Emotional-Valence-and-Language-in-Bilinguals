@@ -92,7 +92,7 @@ def present_trivia(win, trivia_text, experiment_file, lang):
     
     trivia_timer = core.Clock()
     trivia_timer.reset()
-    while trivia_timer.getTime() < 1.5:
+    while trivia_timer.getTime() < 3:
         pass
     
     send_trigger(TRIGGER_TRIVIA_QUESTION)
@@ -168,6 +168,9 @@ def create_block_trials(english_stimuli, dutch_stimuli):
      ['D', 'E', 'D', 'D', 'D', 'D', 'E', 'D', 'D', 'E', 'E', 'E', 'E', 'D', 'E', 'E', 'D', 'E', 'E', 'E', 'D', 'D', 'E', 'D', 'E', 'E', 'D', 'D'],
      ['D', 'E', 'D', 'E', 'D', 'E', 'E', 'D', 'D', 'D', 'D', 'D', 'D', 'E', 'D', 'E', 'D', 'D', 'E', 'E', 'E', 'E', 'D', 'D', 'E', 'E', 'E', 'E'],
      ['E', 'D', 'E', 'D', 'E', 'E', 'D', 'D', 'D', 'D', 'E', 'E', 'E', 'D', 'D', 'D', 'E', 'D', 'D', 'E', 'E', 'E', 'D', 'D', 'E', 'E', 'E', 'D']]
+     
+    counters = {'H_E': 0, 'N_E': 0, 'F_E': 0, 'H_D': 0, 'N_D': 0, 'F_D': 0}
+    max_per_condition = 5 # Each combination in 3x2 should occur 5 times per block.
 
     # A function to select a combination and remove it from the list.
     def select_and_remove_pattern(pattern_list):
@@ -175,12 +178,12 @@ def create_block_trials(english_stimuli, dutch_stimuli):
         pattern_list.remove(pattern)
         return pattern 
     
-    # A function to select a stimulus and remove it from the data frame.
-    def select_and_remove_df(stimuli_dataframe):
-        stimulus = stimuli_dataframe.sample(n=1)
-        stimuli_dataframe = stimuli_dataframe.drop(stimulus.index)
-        stimuli_dataframe = stimuli_dataframe.reset_index(drop=True)
-        return stimulus 
+    # A function that filters a dataframe by emotion, selects one at random, drops it.
+    def select_and_remove_stimulus(df, emotion):
+        filtered_df = df[df['VAL'] == emotion]
+        stimulus = filtered_df.sample(n=1).iloc[0]
+        df.drop(stimulus.name, inplace=True)
+        return stimulus
 
     # Add the first, middle, and the last trials for a total block sequence.
     trial_patterns = [random.choice(['E', 'D'])]
@@ -192,11 +195,25 @@ def create_block_trials(english_stimuli, dutch_stimuli):
 
     # Populate the list with trials as per sequence.
     trials = []
-    for trial_pattern in trial_patterns:
-        if trial_pattern == 'E':
-            trials.append(select_and_remove_df(english_stimuli))
-        else:
-            trials.append(select_and_remove_df(dutch_stimuli))
+    for lang in trial_patterns:
+        selected = False
+        while not selected:
+            # Randomly select an emotion
+            emotion = random.choice(['H', 'N', 'F'])
+            condition_key = f"{emotion}_{lang}"
+            
+            # Check if we can select from this condition
+            if counters[condition_key] < max_per_condition:
+                if lang == 'E':
+                    stimulus = select_and_remove_stimulus(english_stimuli, emotion)
+                else:  # lang == 'D'
+                    stimulus = select_and_remove_stimulus(dutch_stimuli, emotion)
+                
+                trials.append(stimulus)
+                counters[condition_key] += 1
+                selected = True
+
+    return trials
     
     return trials
 
@@ -247,7 +264,7 @@ def main():
             block_window.setText("Block {}/4 will begin shortly.".format(block+1))
             block_window.draw()
             wait_timer.reset()
-            while wait_timer.getTime() < 2:
+            while wait_timer.getTime() < 3:
                 pass
             win.flip()
         
@@ -255,14 +272,14 @@ def main():
         send_trigger(TRIGGER_BLOCK_START)
 
         for stim in block_trials:
-            if 'ENP' in stim.columns:
+            if 'ENP' in stim:
                 check_for_pause()
                 send_trigger(TRIGGER_ENGLISH_ONSET)
-                present_stimulus(win, stim, "EN")
+                present_stimulus(win, stim.to_frame().transpose(), "EN")
             else:
                 check_for_pause()
                 send_trigger(TRIGGER_DUTCH_ONSET)
-                present_stimulus(win, stim, "NL")
+                present_stimulus(win, stim.to_frame().transpose(), "NL")
             trial_counter += 1
             
             wait_timer.reset()
@@ -271,10 +288,10 @@ def main():
                 
             if trial_counter - last_trivia_shown == trivia_interval:
                 check_for_pause()
-                if 'ENP' in stim.columns:
-                    present_trivia(win, stim, experiment_file, lang = "EN")
+                if 'ENP' in stim:
+                    present_trivia(win, stim.to_frame().transpose(), experiment_file, lang = "EN")
                 else:
-                    present_trivia(win, stim, experiment_file, lang = "NL") # Present trivia related to the current stimulus.
+                    present_trivia(win, stim.to_frame().transpose(), experiment_file, lang = "NL") # Present trivia related to the current stimulus.
                 last_trivia_shown = trial_counter
             
             present_fixation(win)
